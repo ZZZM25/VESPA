@@ -1,16 +1,15 @@
-# -*- coding: utf-8 -*-
-"""基线2:稀疏 Merkle 树(SMT),深度 256,不做路径压缩。
+"""Baseline 2: sparse Merkle tree (SMT), depth 256, no path compression.
 
-键 = SHA256(事实);成员与非成员证明同形:256 条兄弟哈希;
-非成员 = 指向默认空叶的路径(不泄露邻居明文);
-更新 = 每条 O(256) 次哈希,增量插入。
+Key = SHA256(fact). Membership and non-membership proofs share the same
+shape (256 sibling hashes); a non-membership proof points at a default
+empty leaf, so no neighbor plaintext leaks. Insert costs O(256) hashes.
 """
 from utils import serialize, sha256
 
 DEPTH = 256
 EMPTY = b"\x00" * 32
 
-# 各层默认哈希(自底向上),全局预计算一次
+# default hash per level (bottom-up), precomputed once
 DEFAULTS = [EMPTY]
 for _ in range(DEPTH):
     DEFAULTS.append(sha256(DEFAULTS[-1] + DEFAULTS[-1]))
@@ -24,7 +23,7 @@ class SMT:
     name = "SMT"
 
     def __init__(self):
-        # nodes[d]: 第 d 层(0=叶)的非默认节点 {前缀整数: 哈希}
+        # nodes[d]: non-default nodes at level d (0 = leaves), prefix int -> hash
         self.nodes = [dict() for _ in range(DEPTH + 1)]
 
     @property
@@ -60,7 +59,7 @@ class SMT:
 
     def ads_bytes(self):
         n_nodes = sum(len(d) for d in self.nodes)
-        return n_nodes * (32 + 8)   # 每个非默认节点:哈希32B + 前缀索引8B
+        return n_nodes * (32 + 8)   # per non-default node: 32B hash + 8B prefix index
 
     def _siblings(self, key):
         sibs = []

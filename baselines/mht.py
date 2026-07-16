@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
-"""基线1:排序 Merkle 哈希树(MHT)。
+"""Baseline 1: sorted Merkle hash tree (MHT).
 
-成员证明 = log n 条兄弟路径;
-非成员证明 = 左右相邻两个叶子的【明文记录】+ 各自路径(泄露来源);
-更新 = 重建整树(排序树无法廉价插入)。
+Membership proof: log n sibling path.
+Non-membership proof: the two adjacent leaves in plaintext plus their
+paths, which is exactly the leakage source.
+Update: rebuild the whole tree (a sorted tree has no cheap insert).
 """
 import bisect
 from utils import serialize, sha256
@@ -14,7 +14,7 @@ class MHT:
 
     def __init__(self):
         self.levels = []
-        self.records = []   # 排序后的 (leaf_hash, fact)
+        self.records = []   # sorted (leaf_hash, fact)
         self.keys = []
 
     def build(self, facts):
@@ -43,7 +43,7 @@ class MHT:
     def ads_bytes(self):
         n_hashes = sum(len(level) for level in self.levels)
         rec_bytes = sum(len(serialize(f)) for _, f in self.records)
-        return n_hashes * 32 + rec_bytes   # 全部树节点哈希 + 叶子明文记录
+        return n_hashes * 32 + rec_bytes   # all node hashes + plaintext leaf records
 
     def _path(self, idx):
         path = []
@@ -65,10 +65,10 @@ class MHT:
         h = sha256(serialize(fact))
         i = bisect.bisect_left(self.keys, h)
         neighbors = []
-        if i > 0:                       # 左邻居:明文记录 + 路径(泄露!)
+        if i > 0:                       # left neighbor: plaintext record + path (the leak)
             neighbors.append((i - 1, self.records[i - 1][1],
                               self._path(i - 1)))
-        if i < len(self.keys):          # 右邻居
+        if i < len(self.keys):          # right neighbor
             neighbors.append((i, self.records[i][1], self._path(i)))
         return {"z": fact, "pi": "nonmem", "wit": neighbors,
                 "meta": {"round": 1}}
@@ -84,7 +84,7 @@ class MHT:
         if vo["pi"] == "mem":
             idx, path = vo["wit"]
             return self._verify_path(h, idx, path)
-        # 非成员:邻居路径有效 + 相邻 + 目标哈希落在中间
+        # non-membership: neighbor paths valid + adjacent + target hash in between
         neighbors = vo["wit"]
         idxs = []
         for idx, rec, path in neighbors:
@@ -95,7 +95,7 @@ class MHT:
         if len(idxs) == 2:
             (i1, h1), (i2, h2) = idxs
             return i2 == i1 + 1 and h1 < h < h2
-        if len(idxs) == 1:               # 边界情形
+        if len(idxs) == 1:               # boundary case
             i1, h1 = idxs[0]
             return (i1 == 0 and h < h1) or \
                    (i1 == len(self.keys) - 1 and h > h1)
@@ -105,7 +105,7 @@ class MHT:
         size = len(serialize(vo["z"])) + 1 + 8
         if vo["pi"] == "mem":
             idx, path = vo["wit"]
-            size += 8 + 33 * len(path)            # 索引 + (哈希+方向位)*log n
+            size += 8 + 33 * len(path)            # index + (hash + direction bit) * log n
         else:
             for idx, rec, path in vo["wit"]:
                 size += 8 + len(serialize(rec)) + 33 * len(path)
