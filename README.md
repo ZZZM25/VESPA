@@ -22,7 +22,7 @@ Output: `results/*.csv` (raw data), `figs/*.png` (300 dpi), `results/e6_leakage.
 | `vesta/scheme.py` VO five-tuple (z, π, wit, payload, meta) | 5.2.2 Definition (VO) |
 | `baselines/mht.py` | sorted Merkle tree (non-membership proof exposes two neighbors in plaintext, i.e. the leakage criticized in Intro Challenge 2) |
 | `baselines/smt.py` | sparse Merkle tree, depth 256, no compression |
-| `experiments/run.py` E1–E6 | six groups of metrics in the experiment chapter |
+| `experiments/run.py` | six groups of metrics in the experiment chapter |
 
 ## Declared Deviations from the Paper (none affect the measured conclusions)
 
