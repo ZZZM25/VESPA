@@ -1,16 +1,16 @@
-# -*- coding: utf-8 -*-
-"""模拟层:扮演平台,把 gMission 事件流转成一轮的事实流(不计时)。
+"""Simulation layer: plays the platform, turning the gMission event stream
+into one round's fact stream (untimed).
 
-事实类型(与论文第5章一一对应):
-  ("Task", tid, rid, com_l, r, e, d)      发布存证(5.1)
-  ("TaskKey", tid)                         发布存证(5.1)
-  ("TaskCount", k, n_k)                    轮末计数(5.1)
-  ("Priority", wid, pb)                    轮始快照(5.2.1)
-  ("Load", wid, cb)                        轮始快照(5.2.1)
-  ("Eligible", tid, wid)                   分配事实(5.2.1)
-  ("Assign", tid, wid)                     分配事实(5.2.1)
-  ("Done", tid, wid, h_sig)                完成事实(5.3.1)
-  ("DoneKey", tid, wid)                    完成事实(5.3.1)
+Fact types (one-to-one with paper Chapter 5):
+  ("Task", tid, rid, com_l, r, e, d)      publication record (5.1)
+  ("TaskKey", tid)                         publication record (5.1)
+  ("TaskCount", k, n_k)                    end-of-round count (5.1)
+  ("Priority", wid, pb)                    round-start snapshot (5.2.1)
+  ("Load", wid, cb)                        round-start snapshot (5.2.1)
+  ("Eligible", tid, wid)                   assignment fact (5.2.1)
+  ("Assign", tid, wid)                     assignment fact (5.2.1)
+  ("Done", tid, wid, h_sig)                completion fact (5.3.1)
+  ("DoneKey", tid, wid)                    completion fact (5.3.1)
 """
 import math
 import random
@@ -18,9 +18,9 @@ import hashlib
 
 from sim.loader import load_stream, TaskEvent, WorkerEvent
 
-# 桶边界(公开系统参数, m_P = m_L = 5)
-PRIORITY_BOUNDS = [7200, 3600, 1800, 600]   # 秒;等待>=7200s -> 桶1(最高优先)
-LOAD_CAP = 4                                 # 负载 0/1/2/3/>=4 -> 桶1..5
+# bucket boundaries (public system parameters, m_P = m_L = 5)
+PRIORITY_BOUNDS = [7200, 3600, 1800, 600]   # seconds; waiting >= 7200s -> bucket 1 (highest)
+LOAD_CAP = 4                                 # load 0/1/2/3/>=4 -> buckets 1..5
 
 
 def beta_p(waiting: float) -> int:
@@ -46,14 +46,14 @@ class _Worker:
         self.online_from = ev.arrival
         self.online_to = ev.arrival + ev.dur
         self.success = ev.success
-        self.load = 0           # 已分配未完成数(论文 5.2.1 的 c_w)
-        self.last_assign = None  # 上次被分配时间(优先级 p_w 的依据)
+        self.load = 0           # assigned-but-unfinished count (c_w in 5.2.1)
+        self.last_assign = None  # time of last assignment (basis of priority p_w)
 
-WARMUP_FRAC = 0.1  # 前10%事件作为"历史轮",产生真实的负载与等待时间
+WARMUP_FRAC = 0.1  # first 10% of events form "historical rounds" that build up real load/waiting
 
 
 def _try_assign(t: TaskEvent, pool, rng, e_ddl):
-    """资格谓词 + 贪心分配,返回 (候选列表, 被选worker或None, 是否完成)。"""
+    """Eligibility predicate + greedy pick; returns (candidates, chosen worker or None, done?)."""
     cands = []
     for w in pool:
         if w.online_from <= e_ddl and w.online_to >= t.arrival:
@@ -69,20 +69,21 @@ def _try_assign(t: TaskEvent, pool, rng, e_ddl):
 
 def generate_round(target_n: int, start_file: int, k: int = 1, seed: int = 42,
                    dataset: str = "gMission"):
-    """生成恰好 target_n 条事实的一个结算轮。
+    """Generate one settlement round with exactly target_n facts.
 
-    前 WARMUP_FRAC 的事件作为"历史轮"静默处理(worker 入池、任务静默
-    分配/完成,只更新负载和上次分配时间,不产事实),使轮始快照的
-    Priority/Load 桶具有论文 5.2.1 的语义:c_w = 历史轮已分配未完成数,
-    p_w = 距上次被分配的等待时间。"""
+    The first WARMUP_FRAC of events are replayed silently (workers join,
+    tasks get assigned and completed without emitting facts) so that the
+    round-start Priority/Load snapshot carries the 5.2.1 semantics:
+    c_w = unfinished assignments from history, p_w = waiting time since
+    the last assignment."""
     rng = random.Random(seed * 1000 + start_file)
     stream = load_stream(start_file, dataset=dataset)
     facts = []
-    pool = []          # 平台已注册的 worker
+    pool = []          # workers registered with the platform
     wid_seq = 0
-    j = 0              # 轮内任务序号(密集编号)
+    j = 0              # in-round task counter (dense numbering)
 
-    # ---- 历史轮预热(静默,不产事实) ----
+    # silent warm-up, no facts emitted
     n_warm = max(1, int(len(stream) * WARMUP_FRAC))
     for ev in stream[:n_warm]:
         if isinstance(ev, WorkerEvent):
@@ -94,20 +95,20 @@ def generate_round(target_n: int, start_file: int, k: int = 1, seed: int = 42,
             if w_star is not None:
                 w_star.last_assign = ev.arrival
                 if done:
-                    pass            # 已完成:不计入未完成负载
+                    pass            # completed tasks never count as unfinished load
                 else:
                     w_star.load += 1
 
     round_start = stream[n_warm].arrival
 
-    # ---- 轮始快照:已注册 worker 的 Priority / Load(5.2.1) ----
+    # round-start snapshot: Priority / Load of registered workers (5.2.1)
     for w in pool:
         since = w.last_assign if w.last_assign is not None else w.online_from
         waiting = max(0.0, round_start - since)
         facts.append(("Priority", w.wid, beta_p(waiting)))
         facts.append(("Load", w.wid, beta_l(w.load)))
 
-    # ---- 顺序消费本轮事件 ----
+    # consume this round's events in order
     for ev in stream[n_warm:]:
         if len(facts) >= target_n - 1:
             break
@@ -116,7 +117,7 @@ def generate_round(target_n: int, start_file: int, k: int = 1, seed: int = 42,
             pool.append(_Worker(f"w{wid_seq}", ev))
             continue
 
-        # 任务事件:发布存证(5.1)
+        # task publication (5.1)
         t: TaskEvent = ev
         j += 1
         tid = f"{k}-{j}"
@@ -128,7 +129,7 @@ def generate_round(target_n: int, start_file: int, k: int = 1, seed: int = 42,
                       t.dur))
         facts.append(("TaskKey", tid))
 
-        # 分配事实(5.2.1):资格谓词 + 贪心分配
+        # assignment facts (5.2.1): eligibility predicate + greedy pick
         cands, w_star, done = _try_assign(t, pool, rng, e_ddl)
         for w in cands:
             facts.append(("Eligible", tid, w.wid))
@@ -136,22 +137,22 @@ def generate_round(target_n: int, start_file: int, k: int = 1, seed: int = 42,
             facts.append(("Assign", tid, w_star.wid))
             w_star.load += 1
             w_star.last_assign = t.arrival
-            # 完成事实(5.3.1):auditor 签名用随机字节模拟,
-            # Done 与 DoneKey 原子地同时插入(第6章 completeness 的前提)
+            # completion facts (5.3.1); auditor signature simulated with random
+            # bytes; Done and DoneKey inserted atomically as Chapter 6 assumes
             if done:
                 sig = rng.getrandbits(512).to_bytes(64, "big")
                 h_sig = hashlib.sha256(sig).hexdigest()
                 facts.append(("Done", tid, w_star.wid, h_sig))
                 facts.append(("DoneKey", tid, w_star.wid))
-                w_star.load -= 1   # 完成后不再计入未完成负载
+                w_star.load -= 1   # finished, no longer unfinished load
 
-    # ---- 轮末计数,截断到精确 target_n ----
+    # end-of-round count, then truncate to exactly target_n
     facts.append(("TaskCount", k, j))
     return facts[:target_n]
 
 
 def make_absent_elements(facts, m: int, seed: int = 42):
-    """构造 m 个保证不在事实集中的元素(用于非成员证明)。"""
+    """Build m elements guaranteed absent from the fact set (for non-membership proofs)."""
     rng = random.Random(seed + 7)
     present = set(facts)
     out = []

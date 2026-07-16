@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
-"""gMission 数据解析。
+"""gMission data parsing.
 
-文件格式:
-  首行: <worker数> <task数> <参数> <总记录数>
-  任务行:   arrival t x y dur reward
-  worker行: arrival w x y cap radius dur success
+File format:
+  header:      <n_workers> <n_tasks> <param> <n_records>
+  task line:   arrival t x y dur reward
+  worker line: arrival w x y cap radius dur success
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +16,7 @@ class TaskEvent:
     arrival: float
     x: float
     y: float
-    dur: float      # 截止时长(e = arrival + dur)
+    dur: float      # deadline window (e = arrival + dur)
     reward: float
 
 
@@ -28,17 +27,17 @@ class WorkerEvent:
     y: float
     cap: int
     radius: float
-    dur: float      # 在线时长
-    success: float  # 完成成功率
+    dur: float      # online duration
+    success: float  # completion success rate
 
 
 def load_file(idx: int, dataset: str = "gMission"):
-    """读取 data_0{idx}.txt,返回按到达时间排序的事件列表。"""
+    """Read data_{idx:02d}.txt, return events sorted by arrival time."""
     path = DATA_ROOT / dataset / f"data_{idx:02d}.txt"
     events = []
     with open(path) as f:
         lines = f.read().splitlines()
-    for line in lines[1:]:  # 跳过头部
+    for line in lines[1:]:  # skip header
         tok = line.split()
         if len(tok) < 2:
             continue
@@ -54,9 +53,9 @@ def load_file(idx: int, dataset: str = "gMission"):
 
 
 def load_stream(start_idx: int, n_files: int = 10, dataset: str = "gMission"):
-    """从 data_{start_idx} 开始顺序拼接多个文件成一条连续事件流。
+    """Concatenate n_files starting at data_{start_idx} into one event stream.
 
-    后续文件的时间整体平移,保证到达时间单调。"""
+    Later files are time-shifted so arrival times stay monotone."""
     stream = []
     offset = 0.0
     for i in range(n_files):
