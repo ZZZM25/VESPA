@@ -1,9 +1,10 @@
-# -*- coding: utf-8 -*-
-"""高效补数据:只算 SMT(全实验)+ VESTA-256/2048 预计算,合并进已有 CSV。
+"""Patch run: compute only SMT (all experiments) plus the VESTA-256/2048
+precomputation, and merge the rows into the existing CSVs.
 
-复用上次跑好的 VESTA-256/VESTA-2048/MHT 数据(不重算),仅:
-  - 计算 SMT 的 e1/e234/e5/a4/a1_violation 行,幂等追加进对应 CSV;
-  - 重算 a2 批量预计算(VESTA-256 与 VESTA-2048),写带 scheme 列的新格式。
+Reuses the previously measured VESTA/MHT rows instead of recomputing:
+  - appends SMT rows to the e1/e234/e5/a4/a1_violation CSVs (idempotent);
+  - recomputes a2 batch precomputation for both VESTA variants, written
+    in the new format with a scheme column.
 """
 import csv
 import gc
@@ -31,7 +32,7 @@ def now():
 
 
 def merge_csv(name, header, new_rows, scheme="SMT"):
-    """幂等合并:删掉已有的 scheme 行,追加新行(保留其他方案)。"""
+    """Idempotent merge: drop existing rows of this scheme, append the new ones."""
     path = RESULTS / name
     head, keep = header, []
     if path.exists():
@@ -133,7 +134,7 @@ def smt_a1_violation(ds, reps=5):
 
 
 def a2_both(ds, reps=5):
-    """批量预计算:VESTA-256 与 VESTA-2048,新格式带 scheme 列。"""
+    """Batch precomputation for VESTA-256 and VESTA-2048, with a scheme column."""
     rows = []
     for bits in (256, 2048):
         for n in SIZES:

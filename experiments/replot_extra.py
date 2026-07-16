@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
-"""仅从已有 results/*.csv 重绘 A1/A2/A4 图(不重算实验)。
+"""Replot the A1/A2/A4 figures from existing results/*.csv, no recomputation.
 
-复用 run_extra 的新样式(柱状图、新罗马、无网格、color 板)。
+Reuses run_extra's style (grouped bars, Times New Roman, no grid).
 """
 import csv
 import sys
@@ -19,12 +18,18 @@ from experiments.run_extra import (
     RESULTS, SIZES, COLORS, grouped_bar, style, save, agg, finish,
 )
 
+plt.rcParams["hatch.linewidth"] = 0.7
+
 DATASETS = ["gMission", "EverySender"]
 SCHEMES = ["VESTA-256", "VESTA-2048", "MHT", "SMT"]
+# same hatches as plot_paper
+HATCH = {"VESTA-256": "//", "VESTA-2048": "\\\\", "MHT": "xx", "SMT": ".."}
+# legend shows VESPA; data keys stay VESTA to match the CSVs and COLORS
+DISPLAY = {s: s.replace("VESTA", "VESPA") for s in SCHEMES}
 
 
 def read_rows(name):
-    """读 CSV 为位置索引的 list(跳过表头),数值列保持字符串由 agg 转 float。"""
+    """Read a CSV as positional rows (header skipped); agg converts values to float."""
     with open(RESULTS / name) as f:
         return [row for row in csv.reader(f)][1:]
 
@@ -36,7 +41,8 @@ def replot_a1_bundle(ds):
     fig, ax = plt.subplots(figsize=(3.6, 2.9))
     series = [{"ys": [d[(s, str(n))][0] / 1024 for n in SIZES],
                "es": [d[(s, str(n))][1] / 1024 for n in SIZES],
-               "color": COLORS[s], "label": s} for s in SCHEMES]
+               "color": COLORS[s], "hatch": HATCH[s],
+               "label": DISPLAY[s]} for s in SCHEMES]
     grouped_bar(ax, SIZES, series)
     style(ax, "Facts per round", "Bundle size (KB)")
     finish(ax)
@@ -53,10 +59,10 @@ def replot_a1_bucket(ds):
     series = [
         {"ys": [dg[(str(k),)][0] for k in ks],
          "es": [dg[(str(k),)][1] for k in ks],
-         "color": "#295A8C", "label": "Generation"},
+         "color": "#295A8C", "hatch": "//", "label": "Generation"},
         {"ys": [dv[(str(k),)][0] for k in ks],
          "es": [dv[(str(k),)][1] for k in ks],
-         "color": "#ADDEEF", "label": "Verification"},
+         "color": "#ADDEEF", "hatch": "..", "label": "Verification"},
     ]
     grouped_bar(ax, ks, series)
     style(ax, "Ruled-out task set size", "Time (ms)")
@@ -70,7 +76,8 @@ def replot_a4(ds):
     d = agg(rows, [0, 1], 3)
     fig, ax = plt.subplots(figsize=(3.6, 2.9))
     series = [{"ys": [d[(s, str(n))][0] / 2**20 for n in SIZES], "es": None,
-               "color": COLORS[s], "label": s} for s in SCHEMES]
+               "color": COLORS[s], "hatch": HATCH[s],
+               "label": DISPLAY[s]} for s in SCHEMES]
     grouped_bar(ax, SIZES, series)
     style(ax, "Facts per round", "ADS storage (MB)")
     finish(ax)

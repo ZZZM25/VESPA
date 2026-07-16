@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
-"""实验入口。
+"""Experiment entry point.
 
-用法:
-  python experiments/run.py --exp e1          # ADS 构建时间
-  python experiments/run.py --exp e234        # VO 构建/验证时间 + VO 大小(一趟产出三组)
-  python experiments/run.py --exp e5          # 更新时间
-  python experiments/run.py --exp e6          # 泄露量表
+Usage:
+  python experiments/run.py --exp e1          # ADS construction time
+  python experiments/run.py --exp e234        # VO generation/verification time + size, one pass
+  python experiments/run.py --exp e5          # update time
+  python experiments/run.py --exp e6          # leakage table
   python experiments/run.py --exp all
-  可选: --sizes 500 1000 --reps 3 --schemes VESTA MHT
+  Options: --sizes 500 1000 --reps 3 --schemes VESTA MHT
 """
 import argparse
 import csv
@@ -38,7 +37,8 @@ FIGS.mkdir(exist_ok=True)
 SIZES = [500, 1000, 2000, 5000, 10000]
 REPS = 10
 SEED = 42
-# E2/E3/E4 每轮抽样数(VESTA witness 生成昂贵,样本少但均值稳定)
+# per-round sample counts for E2-E4; VESTA witnesses are expensive,
+# so fewer samples there (means are stable anyway)
 SAMPLES = {"VESTA-256": 10, "VESTA-2048": 10, "MHT": 100, "SMT": 100}
 SCHEMES = {"VESTA-256": lambda: Vesta(256),
            "VESTA-2048": lambda: Vesta(2048),
@@ -64,7 +64,7 @@ def write_csv(name, header, rows):
 
 
 def agg(rows, key_cols, val_col):
-    """按 key 聚合 -> {key: (mean, std)}"""
+    """Group rows by key columns -> {key: (mean, std)}."""
     from collections import defaultdict
     buckets = defaultdict(list)
     for r in rows:
@@ -99,7 +99,6 @@ def line_plot(data, schemes, xs, title, ylabel, fname, logy=True):
     print(f"  saved figs/{fname}")
 
 
-# ---------------- E1: ADS 构建时间 ----------------
 def run_e1(sizes, reps, schemes, ds):
     print(f"[E1] ADS construction time ({ds})")
     rows = []
@@ -121,7 +120,6 @@ def run_e1(sizes, reps, schemes, ds):
               "Construction time (ms)", f"e1_build_{ds}.png")
 
 
-# ---------------- E2/E3/E4: VO 构建 / 验证 / 大小 ----------------
 def run_e234(sizes, reps, schemes, ds):
     print(f"[E2/3/4] VO generation / verification / size ({ds})")
     rows_gen, rows_ver, rows_size = [], [], []
@@ -192,13 +190,12 @@ def run_e234(sizes, reps, schemes, ds):
         print(f"  saved figs/{fname}")
 
 
-# ---------------- E5: 更新时间 ----------------
 def run_e5(reps, schemes, ds, base_n=5000,
            batches=(10, 50, 100, 500, 1000)):
     print(f"[E5] Update time ({ds}, base round = {base_n} facts)")
     rows = []
     for rep in range(reps):
-        # 多生成 max(batches) 条作为追加材料
+        # generate max(batches) extra facts as append material
         all_facts = generate_round(base_n + max(batches), start_file=rep,
                                    seed=SEED, dataset=ds)
         base, extra = all_facts[:base_n], all_facts[base_n:]
@@ -234,7 +231,6 @@ def run_e5(reps, schemes, ds, base_n=5000,
     print(f"  saved figs/e5_update_{ds}.png")
 
 
-# ---------------- E6: 泄露量表 ----------------
 def run_e6(n=5000):
     print("[E6] Leakage table (n = %d)" % n)
     logn = math.ceil(math.log2(n))
@@ -243,14 +239,15 @@ def run_e6(n=5000):
     rows = []
     for req in requests:
         for pi in ("positive", "negative"):
-            # (方案, 无关明文记录数, 结构哈希数);两个 VESTA 变体泄露相同
+            # (unrelated plaintext records, structural hashes) per scheme;
+            # both VESTA variants leak the same
             vesta = (0, 0)
             if pi == "positive":
                 mht = (0, logn)
                 smt = (0, 256)
             else:
-                mht = (2, 2 * logn)      # 两个邻居明文 + 两条路径
-                smt = (0, 256)           # 无明文,但 256 结构哈希
+                mht = (2, 2 * logn)      # two neighbor plaintexts + two paths
+                smt = (0, 256)           # no plaintext, 256 structural hashes
             rows.append([req, pi,
                          vesta[0], vesta[1],
                          mht[0], mht[1],
@@ -260,7 +257,7 @@ def run_e6(n=5000):
                "VESTA_records", "VESTA_hashes",
                "MHT_records", "MHT_hashes",
                "SMT_records", "SMT_hashes"], rows)
-    # LaTeX 表格源码
+    # LaTeX source for the table
     tex = [r"\begin{tabular}{llcccccc}", r"\toprule",
            r"Request & Answer & \multicolumn{2}{c}{VESTA} & "
            r"\multicolumn{2}{c}{MHT} & \multicolumn{2}{c}{SMT}\\",

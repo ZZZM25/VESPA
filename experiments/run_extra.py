@@ -1,13 +1,14 @@
-# -*- coding: utf-8 -*-
-"""补充实验 A1/A2/A4。
+"""Supplementary experiments A1/A2/A4.
 
-A1 争议裁决(对应论文 5.2.3):
-   - 违规 bundle:6 个元素证明(3成员+1非成员+2取值成员),测生成/验证/大小;
-   - 桶号不一致 bundle(VESTA worst case):k 个非成员证明 + 1 个成员证明。
-A2 批量 witness 预计算(RootFactor):naive 单个生成 vs 批量摊销。
-A4 平台侧 ADS 存储开销。
+A1 dispute adjudication (paper 5.2.3):
+   - violation bundle: 6 element proofs (3 membership + 1 non-membership
+     + 2 value memberships); measures generation / verification / size;
+   - bucket-inconsistency bundle (VESTA worst case): k non-membership
+     proofs + 1 membership proof.
+A2 batch witness precomputation (RootFactor): naive one-by-one vs amortized batch.
+A4 platform-side ADS storage.
 
-用法: python experiments/run_extra.py --exp a1|a2|a4|all [--dataset gMission]
+Usage: python experiments/run_extra.py --exp a1|a2|a4|all [--dataset gMission]
 """
 import argparse
 import csv
@@ -25,7 +26,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# 全局样式:新罗马、黑色、无网格
+# global style: Times New Roman, black, no grid
 plt.rcParams.update({
     "font.family": "Times New Roman",
     "mathtext.fontset": "stix",
@@ -56,14 +57,13 @@ SCHEMES = {"VESTA-256": lambda: Vesta(256),
 COLORS = {"VESTA-256": "#295A8C", "VESTA-2048": "#529442",
           "MHT": "#637384", "SMT": "#BD8C7B"}
 
-# 字体大一号
 FS_LABEL = 13
 FS_TICK = 12
 FS_LEGEND = 11
 
 
 def grouped_bar(ax, xs, series):
-    """series: list of {ys, color, label};以分组柱状绘制(无误差棒)。"""
+    """series: list of {ys, color, label}; grouped bars, no error bars."""
     n = len(series)
     total_w = 0.8
     bw = total_w / n
@@ -71,13 +71,15 @@ def grouped_bar(ax, xs, series):
     for i, sr in enumerate(series):
         pos = [j - total_w / 2 + bw * (i + 0.5) for j in idx]
         ax.bar(pos, sr["ys"], width=bw, label=sr.get("label"),
-               color=sr["color"], edgecolor="black", linewidth=0.4)
+               color=sr["color"], edgecolor="black", linewidth=0.4,
+               hatch=sr.get("hatch"))
     ax.set_xticks(idx)
     ax.set_xticklabels([str(x) for x in xs])
 
 
 def finish(ax, ncol=None, gap=0.06):
-    """图例放框内顶部:自动缩字号防超宽 + 按图例高度自适应留白(贴近柱子、不重叠)。"""
+    """Legend at the inside top: shrink font until it fits, then raise the
+    y-limit so the tallest bar stays clear of the legend."""
     handles, labels = ax.get_legend_handles_labels()
     if ncol is None:
         ncol = len(labels)
@@ -142,13 +144,14 @@ def save(fig, name):
     print(f"  saved figs/paper/{name}")
 
 
-# ---------------- A1: 争议裁决 ----------------
 def violation_targets(facts):
-    """组装违规 bundle 的6个目标:eligible成员、assign非成员、竞争者assign成员、
-    双方priority取值、本人load取值(论文 5.2.3)。
+    """Pick the 6 targets of a violation bundle (paper 5.2.3): eligible
+    membership, assign non-membership, competitor's assign membership,
+    both workers' priority values, own load value.
 
-    小轮次可能缺某些事实类型(快照占满),此时用任意已承诺事实代位:
-    witness 的生成/验证代价与事实内容无关,不影响测量。"""
+    Small rounds may lack some fact type (the snapshot fills the round);
+    any committed fact then substitutes, since witness generation and
+    verification cost does not depend on fact content."""
     fs = set(facts)
 
     def pick(typ, fallback_i):
@@ -160,7 +163,7 @@ def violation_targets(facts):
                 None)
     if elig is not None:
         absent = ("Assign", elig[1], elig[2])
-    else:                       # 无合适 Eligible 时,用等价代价的合成缺席元素
+    else:                       # no suitable Eligible: synthetic absent element, same cost
         elig = pick("Eligible", 0)
         absent = ("Assign", "8-0", "wx-absent")
     assign = pick("Assign", 1)
@@ -198,7 +201,7 @@ def run_a1_violation(ds, reps=5):
     write_csv(f"a1_violation_{ds}.csv",
               ["scheme", "size", "rep", "gen_ms", "verify_ms", "size_bytes"],
               rows)
-    # 图:bundle 总大小 vs 轮规模
+    # figure: total bundle size vs round size
     tag = ds.lower()
     d = agg(rows, [0, 1], 5)
     fig, ax = plt.subplots(figsize=(3.6, 2.9))
@@ -216,7 +219,7 @@ def run_a1_bucket(ds, reps=3, base_n=2000, ks=(50, 100, 200, 500)):
     rows = []
     for rep in range(reps):
         facts = generate_round(base_n, start_file=rep, seed=SEED, dataset=ds)
-        ads = Vesta(2048)        # 桶号不一致用安全变体(保守/headline 配置)
+        ads = Vesta(2048)        # secure variant (conservative, headline config)
         ads.build(facts)
         load_fact = next(f for f in facts if f[0] == "Load")
         for k in ks:
@@ -251,14 +254,13 @@ def run_a1_bucket(ds, reps=3, base_n=2000, ks=(50, 100, 200, 500)):
     save(fig, f"a1_bucket_{tag}.png")
 
 
-# ---------------- A2: 批量 witness 预计算 ----------------
 def run_a2(ds, reps=5):
     print(f"[A2] batch witness precomputation ({ds})")
     rows = []
     for n in SIZES:
         for rep in range(reps):
             facts = generate_round(n, start_file=rep, seed=SEED, dataset=ds)
-            ads = Vesta(2048)        # 批量预计算用安全变体
+            ads = Vesta(2048)
             ads.build(facts)
             t0 = now_ms()
             wits = ads.batch_mem_witnesses()
@@ -271,7 +273,7 @@ def run_a2(ds, reps=5):
         print(f"  A2 n={n}: done")
     write_csv(f"a2_batch_{ds}.csv",
               ["size", "rep", "total_ms", "amortized_ms"], rows)
-    # 图:naive(取自 e2 csv)vs 批量摊销
+    # figure: naive (from the e2 csv) vs amortized batch
     tag = ds.lower()
     naive_rows = list(csv.DictReader(open(RESULTS / f"e2_vogen_{ds}.csv")))
     nb = defaultdict(list)
@@ -294,7 +296,6 @@ def run_a2(ds, reps=5):
     save(fig, f"a2_batch_{tag}.png")
 
 
-# ---------------- A4: ADS 存储 ----------------
 def run_a4(ds, reps=3):
     print(f"[A4] ADS storage ({ds})")
     rows = []
