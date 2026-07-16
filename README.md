@@ -1,6 +1,6 @@
 # VESTA Experiment Code
 
-Off-chain experiments: fact set / complete element construction, VO construction, verification (corresponding to Chapter 5 of the paper; on-chain parts not included).
+Fact set / complete element construction, VO construction, verification.
 
 ## Run
 
